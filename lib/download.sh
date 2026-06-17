@@ -69,30 +69,57 @@ download_require_http_client() {
 download_http_get() {
   local url="$1"
   local output_file="$2"
+  local mode="${3:-quiet}"
   local auth_token=""
 
   auth_token="$(github_auth_token 2>/dev/null || true)"
 
   if command -v curl >/dev/null 2>&1; then
-    if [[ -n "$auth_token" ]]; then
-      curl -fsSL \
-        -H "Accept: application/vnd.github+json" \
-        -H "Authorization: Bearer ${auth_token}" \
-        "$url" -o "$output_file"
+    if [[ "$mode" == "progress" ]]; then
+      if [[ -n "$auth_token" ]]; then
+        curl -fL --progress-bar \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${auth_token}" \
+          "$url" -o "$output_file"
+      else
+        curl -fL --progress-bar \
+          -H "Accept: application/vnd.github+json" \
+          "$url" -o "$output_file"
+      fi
     else
-      curl -fsSL -H "Accept: application/vnd.github+json" "$url" -o "$output_file"
+      if [[ -n "$auth_token" ]]; then
+        curl -fsSL \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${auth_token}" \
+          "$url" -o "$output_file"
+      else
+        curl -fsSL -H "Accept: application/vnd.github+json" "$url" -o "$output_file"
+      fi
     fi
     return 0
   fi
 
   if command -v wget >/dev/null 2>&1; then
-    if [[ -n "$auth_token" ]]; then
-      wget -q \
-        --header="Accept: application/vnd.github+json" \
-        --header="Authorization: Bearer ${auth_token}" \
-        -O "$output_file" "$url"
+    if [[ "$mode" == "progress" ]]; then
+      if [[ -n "$auth_token" ]]; then
+        wget --show-progress --progress=bar:force:noscroll \
+          --header="Accept: application/vnd.github+json" \
+          --header="Authorization: Bearer ${auth_token}" \
+          -O "$output_file" "$url"
+      else
+        wget --show-progress --progress=bar:force:noscroll \
+          --header="Accept: application/vnd.github+json" \
+          -O "$output_file" "$url"
+      fi
     else
-      wget -q --header="Accept: application/vnd.github+json" -O "$output_file" "$url"
+      if [[ -n "$auth_token" ]]; then
+        wget -q \
+          --header="Accept: application/vnd.github+json" \
+          --header="Authorization: Bearer ${auth_token}" \
+          -O "$output_file" "$url"
+      else
+        wget -q --header="Accept: application/vnd.github+json" -O "$output_file" "$url"
+      fi
     fi
     return 0
   fi
@@ -188,7 +215,7 @@ download_resolve_release_metadata() {
   json_file="$(mktemp "${TMPDIR:-/tmp}/easytier-release.XXXXXX.json")"
   parsed_file="$(mktemp "${TMPDIR:-/tmp}/easytier-release.XXXXXX.tsv")"
 
-  if ! download_http_get "$api_url" "$json_file"; then
+  if ! download_http_get "$api_url" "$json_file" "quiet"; then
     rm -f "$json_file" "$parsed_file" 2>/dev/null || true
     print_error "无法获取 EasyTier 发布信息: $api_url"
     print_github_rate_limit_help
@@ -376,7 +403,7 @@ install_easytier_release() {
   print_kv "资源包" "${DOWNLOAD_ASSET_NAME}"
 
   print_info "正在${DOWNLOAD_ACTION_LABEL} EasyTier 发布包 ..."
-  if ! download_http_get "$DOWNLOAD_ASSET_URL" "$archive_file"; then
+  if ! download_http_get "$DOWNLOAD_ASSET_URL" "$archive_file" "progress"; then
     rm -rf "$extract_dir" 2>/dev/null || true
     print_error "下载失败: ${DOWNLOAD_ASSET_URL}"
     exit 1
