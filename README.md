@@ -6,11 +6,11 @@
 
 - 你希望在 macOS、Linux、Termux、Windows 上尽量用同一套方式管理 EasyTier
 - 你希望把 create / join 两类节点的配置、状态、日志和启动方式统一下来
-- 你希望目标机器只需要拉取仓库、放入二进制、修改 `.env` 配置后就可以直接使用
+- 你希望目标机器只需要拉取仓库、下载或放入二进制、修改 `.env` 配置后就可以直接使用
 - 你希望在排查问题时，能直接使用内置的状态查看、入口连通性检查、诊断信息和日志查看能力
 - 你希望后续把节点接入开机自启，而不是每台机器都单独手写 systemd、launchd 或其他启动脚本
 
-这个仓库不内置任何 EasyTier 可执行文件，也不再区分平台目录。整个项目只保留一个根目录 `bin/`，你只需要把当前机器实际要用的 EasyTier 可执行文件复制进去，再按需初始化 `.env` 配置即可。
+这个仓库不内置任何 EasyTier 可执行文件，也不再区分平台目录。整个项目只保留一个根目录 `bin/`，你既可以手动把当前机器实际要用的 EasyTier 可执行文件复制进去，也可以直接使用内置的 `download` / `upgrade` 命令从官方 GitHub release 下载后安装到 `bin/`，再按需初始化 `.env` 配置即可。
 
 ## 目录结构
 
@@ -19,11 +19,13 @@ easytier-tool/
 ├── easytierctl
 ├── bin/
 ├── env-templates/
+│   ├── .env.example
 │   ├── .env.executables.example
 │   ├── .env.create.example
 │   └── .env.join.example
 ├── lib/
 │   ├── autostart.sh
+│   ├── download.sh
 │   ├── easytier.sh
 │   ├── os.sh
 │   ├── output.sh
@@ -40,17 +42,19 @@ easytier-tool/
   - `lib/platform.sh`：平台识别、平台标识、二进制目录约定
   - `lib/os.sh`：hostname、machine-id、路径转换、端口探测等系统差异
   - `lib/autostart.sh`：systemd / launchd / Termux:Boot / Windows Startup
+  - `lib/download.sh`：GitHub release 下载、版本安装、升级逻辑
   - `lib/output.sh`：终端彩色输出、状态块渲染、节点信息美化
   - `lib/easytier.sh`：命令分发、配置装载、参数拼装、运行时逻辑
 
 为了避免歧义，这里有一个固定约定：
 
 - 二进制目录永远是项目根目录下的 `bin/`
+- 项目级公共环境变量固定放在根目录 `.env`
 - `.env.executables` 只负责定义文件名，不负责定义目录
 
 ## 你后续要放进去的 4 个文件
 
-把下面 4 个文件复制到项目根目录 `bin/` 下：
+如果你不使用内置的 `download` / `upgrade` 命令，而是希望自己管理二进制，可以把下面 4 个文件复制到项目根目录 `bin/` 下：
 
 - `easytier-core`
 - `easytier-cli`
@@ -64,15 +68,18 @@ easytier-tool/
 ## 使用流程
 
 1. 把 4 个 EasyTier 二进制复制到根目录 `bin/`
-2. 初始化组网配置：
+2. 如需配置 GitHub token 等公共环境变量，可先执行：
+   `./easytierctl init env`
+3. 初始化组网配置：
    `./easytierctl init create`
    或
    `./easytierctl init join`
-3. 如果二进制文件名不是默认值，再执行：
+4. 如果二进制文件名不是默认值，再执行：
    `./easytierctl init executables`
-4. 修改 `.env.executables`
-5. 修改 `.env.create` 或 `.env.join`
-6. 启动：
+5. 修改根目录 `.env`
+6. 修改 `.env.executables`
+7. 修改 `.env.create` 或 `.env.join`
+8. 启动：
    `./easytierctl start create`
    或
    `./easytierctl start join`
@@ -84,6 +91,23 @@ easytier-tool/
 ./easytierctl status
 ./easytierctl stop
 ```
+
+如果你不想手动准备 EasyTier 二进制，也可以直接让脚本下载并安装当前平台对应的官方发布包：
+
+```bash
+./easytierctl download
+./easytierctl upgrade
+./easytierctl upgrade v2.6.4
+```
+
+下载/升级逻辑说明：
+
+- 会从 EasyTier 官方 GitHub release 动态查询最新版本或指定版本
+- 会自动匹配当前平台对应的发布包并下载到本地
+- 解压后会把 `easytier-core`、`easytier-cli`、`easytier-web`、`easytier-web-embed` 安装到 `bin/`
+- 会自动重写根目录 `.env.executables`，让脚本和实际文件名保持一致
+- 如果设置了 `GITHUB_TOKEN` 或 `GH_TOKEN`，会自动带上它访问 GitHub API，以缓解匿名访问限流
+- 如果本机已经执行过 `gh auth login`，脚本也会自动尝试复用 `gh auth token`
 
 ## 命令说明
 
@@ -99,6 +123,9 @@ easytier-tool/
 - `platform list`：显示当前脚本内置支持的平台标识
 - `platform current`：显示当前系统识别结果
 - `platform verify`：检查 `bin/` 中是否存在所需二进制
+- `download [version]`：下载并安装当前平台对应的 EasyTier 官方发布包；省略版本时默认最新 release
+- `upgrade [version]`：升级当前平台对应的 EasyTier 官方发布包；省略版本时默认最新 release
+- `init env`：初始化项目级公共环境变量配置
 - `init executables`：初始化可执行文件映射配置
 - `init create`：初始化创建组网配置
 - `init join`：初始化加入组网配置
@@ -148,7 +175,24 @@ easytier-tool/
 
 ## 配置文件说明
 
-### 1. `.env.executables`
+### 1. `.env`
+
+项目级公共环境变量文件，会在每次执行 `easytierctl` 时自动加载。
+
+对应模板文件在 `env-templates/.env.example`。
+
+适合放下面这类公共变量：
+
+- `GITHUB_TOKEN`
+- `GH_TOKEN`
+
+例如：
+
+```env
+GITHUB_TOKEN=github_pat_xxxxxxxxxxxxx
+```
+
+### 2. `.env.executables`
 
 初始化后生成在仓库根目录，用于声明 `bin/` 目录里实际使用的文件名。
 
@@ -165,12 +209,12 @@ EASYTIER_WEB_FILENAME=easytier-web-macos
 EASYTIER_WEB_EMBED_FILENAME=easytier-web-embed-macos
 ```
 
-### 2. `.env.create`
+### 3. `.env.create`
 
 用于入口节点、服务端、创建组网的场景。
 对应模板文件在 `env-templates/.env.create.example`。
 
-### 3. `.env.join`
+### 4. `.env.join`
 
 用于客户端、接入节点、加入现有组网的场景。
 对应模板文件在 `env-templates/.env.join.example`。
@@ -178,9 +222,11 @@ EASYTIER_WEB_EMBED_FILENAME=easytier-web-embed-macos
 ## 运行时目录
 
 - `bin/`：手动放入二进制
+- 根目录 `.env`：项目级公共环境变量
 - 根目录 `.env.*` 文件：真实运行配置
 - `.state/`：自动生成的状态目录
 - `logs/`：自动生成的日志目录
+- `.downloads/`：自动下载或升级 EasyTier 时使用的缓存和解压工作目录
 
 ## 控制台输出与日志
 
@@ -205,6 +251,7 @@ EASYTIER_WEB_EMBED_FILENAME=easytier-web-embed-macos
 
 - 将 Termux 对应架构的 EasyTier 可执行文件复制到 `bin/`
 - 执行 `./easytierctl platform current` 确认识别为 `termux-aarch64` 或 `termux-x86_64`
+- 当前 `download` / `upgrade` 还不内置 Termux 发布包自动匹配，建议手动下载后放入 `bin/`
 - 普通 Termux 环境通常建议在 `.env.join` 或 `.env.create` 中设置 `NO_TUN=true`
 - 如果需要创建 TUN，通常要求设备已 root，并在 root shell 中运行
 - 如果需要开机自启，可使用 `./easytierctl autostart install join`，并确保已经安装 `Termux:Boot`
@@ -217,6 +264,7 @@ EASYTIER_WEB_EMBED_FILENAME=easytier-web-embed-macos
 - 如果文件名带 `.exe`，请在 `.env.executables` 中显式写成 `.exe`
 - 执行 `./easytierctl platform current` 确认识别为 `windows-x86_64` 或 `windows-aarch64`
 - Windows 下默认不走 Linux/macOS 的 `sudo` / TUN 提权逻辑
+- 如果使用 `download` / `upgrade`，脚本会自动把 `.env.executables` 同步成带 `.exe` 的官方文件名
 - 如果需要开机自启，可使用 `./easytierctl autostart install join`
 
 如果后续还要支持别的平台，通常只需要：

@@ -124,6 +124,22 @@ render_tsv_table() {
   '
 }
 
+render_pairs_table() {
+  local header_left="${1:-field}"
+  local header_right="${2:-value}"
+  local tsv=""
+
+  shift 2 || true
+  tsv="${header_left}"$'\t'"${header_right}"
+
+  while [[ $# -gt 1 ]]; do
+    tsv+=$'\n'"$1"$'\t'"$2"
+    shift 2
+  done
+
+  render_tsv_table "$tsv"
+}
+
 render_node_info() {
   local raw="$1"
   local tsv=""

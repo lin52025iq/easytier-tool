@@ -12,6 +12,8 @@ source "${ROOT_DIR}/lib/output.sh"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/lib/autostart.sh"
 # shellcheck disable=SC1091
+source "${ROOT_DIR}/lib/download.sh"
+# shellcheck disable=SC1091
 source "${ROOT_DIR}/lib/easytier.sh"
 
 easytierctl_main "$@"

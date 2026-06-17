@@ -11,8 +11,10 @@ ROLE_LABEL=""
 CONFIG_ENV_FILE=""
 EXECUTABLES_ENV_FILE=""
 ACTIVE_EXECUTABLES_ENV_FILE=""
+GLOBAL_ENV_FILE=""
 CONFIG_ENV_EXAMPLE_FILE=""
 EXECUTABLES_ENV_EXAMPLE_FILE=""
+GLOBAL_ENV_EXAMPLE_FILE=""
 AUTOSTART_ACTION=""
 BIN_DIR=""
 PLATFORM_ID=""
@@ -129,9 +131,12 @@ prepare_runtime_context() {
   PLATFORM_ID="$(platform_detect_default_id || true)"
   PLATFORM_NAME="$(platform_display_name "${PLATFORM_ID:-unknown}")"
   BIN_DIR="$(platform_bin_dir)"
+  GLOBAL_ENV_FILE="${ROOT_DIR}/.env"
+  GLOBAL_ENV_EXAMPLE_FILE="${ROOT_DIR}/env-templates/.env.example"
   EXECUTABLES_ENV_FILE="${ROOT_DIR}/.env.executables"
   ACTIVE_EXECUTABLES_ENV_FILE="$EXECUTABLES_ENV_FILE"
   EXECUTABLES_ENV_EXAMPLE_FILE="${ROOT_DIR}/env-templates/.env.executables.example"
+  load_global_env_if_exists
 }
 
 set_profile_context() {
@@ -274,6 +279,12 @@ load_env_file() {
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
+}
+
+load_global_env_if_exists() {
+  if [[ -f "$GLOBAL_ENV_FILE" ]]; then
+    load_env_file "$GLOBAL_ENV_FILE"
+  fi
 }
 
 load_binary_config() {
@@ -657,18 +668,34 @@ build_args() {
 
 verify_platform_binaries() {
   load_binary_config
-  print_kv "二进制目录" "${BIN_DIR}"
-
   local missing="false"
   local file
+  local label=""
+  local status=""
+  local tsv="component\tstatus\tfile\tpath"
+
   for file in "$CORE_BIN" "$CLI_BIN" "$WEB_BIN" "$WEB_EMBED_BIN"; do
+    case "$(basename "$file")" in
+      easytier-core|easytier-core.exe) label="core" ;;
+      easytier-cli|easytier-cli.exe) label="cli" ;;
+      easytier-web|easytier-web.exe) label="web" ;;
+      easytier-web-embed|easytier-web-embed.exe) label="web-embed" ;;
+      *) label="$(basename "$file")" ;;
+    esac
+
     if { os_is_windows && [[ -f "$file" ]]; } || [[ -x "$file" ]]; then
-      printf '  %s[OK]%s %s\n' "$STYLE_GREEN" "$STYLE_RESET" "$(basename "$file")"
+      status="ok"
     else
-      printf '  %s[缺失]%s %s -> %s\n' "$STYLE_RED" "$STYLE_RESET" "$(basename "$file")" "$file"
+      status="missing"
       missing="true"
     fi
+
+    tsv+=$'\n'"${label}"$'\t'"${status}"$'\t'"$(basename "$file")"$'\t'"${file}"
   done
+
+  render_pairs_table "field" "value" \
+    "二进制目录" "${BIN_DIR}"
+  render_tsv_table "$tsv"
 
   if [[ "$missing" == "true" ]]; then
     return 1
@@ -709,13 +736,10 @@ cmd_platform_current() {
   local detected_id
   detected_id="$(platform_detect_default_id || true)"
   print_heading "当前平台"
-  print_kv "ID" "${PLATFORM_ID:-unknown}"
-  print_kv "名称" "${PLATFORM_NAME}"
-  if [[ -n "$detected_id" ]]; then
-    print_kv "支持状态" "已内置识别"
-  else
-    print_kv "支持状态" "未内置识别"
-  fi
+  render_pairs_table "field" "value" \
+    "ID" "${PLATFORM_ID:-unknown}" \
+    "名称" "${PLATFORM_NAME}" \
+    "支持状态" "$([[ -n "$detected_id" ]] && printf '已内置识别' || printf '未内置识别')"
 }
 
 cmd_platform_verify() {
@@ -731,6 +755,10 @@ cmd_platform_verify() {
 cmd_init_config() {
   local target_file template_file
   case "$PROFILE" in
+    env)
+      target_file="$GLOBAL_ENV_FILE"
+      template_file="$GLOBAL_ENV_EXAMPLE_FILE"
+      ;;
     executables)
       target_file="$EXECUTABLES_ENV_FILE"
       template_file="$EXECUTABLES_ENV_EXAMPLE_FILE"
@@ -903,10 +931,20 @@ cmd_logs() {
 }
 
 cmd_diagnose() {
+  local status_text="未运行"
+  local pid_text="-"
+
+  if is_running; then
+    status_text="运行中"
+    pid_text="$(find_pid)"
+  fi
+
   print_heading "EasyTier 诊断"
 
   print_subheading "平台"
-  print_kv "名称" "${PLATFORM_NAME} (${PLATFORM_ID:-unknown})"
+  render_pairs_table "field" "value" \
+    "平台" "${PLATFORM_NAME}" \
+    "平台 ID" "${PLATFORM_ID:-unknown}"
 
   print_subheading "二进制检查"
   if verify_platform_binaries; then
@@ -916,20 +954,20 @@ cmd_diagnose() {
   fi
 
   print_subheading "配置文件"
-  print_kv "可执行映射" "${ACTIVE_EXECUTABLES_ENV_FILE}"
-  print_kv "运行配置" "${CONFIG_ENV_FILE}"
+  render_pairs_table "field" "value" \
+    "可执行映射" "${ACTIVE_EXECUTABLES_ENV_FILE}" \
+    "运行配置" "${CONFIG_ENV_FILE}"
 
   print_subheading "进程"
-  if is_running; then
-    print_kv "状态" "运行中"
-    print_kv "PID" "$(find_pid)"
-  else
-    print_kv "状态" "未运行"
-  fi
+  render_pairs_table "field" "value" \
+    "状态" "${status_text}" \
+    "PID" "${pid_text}"
 
   print_subheading "本地身份"
-  print_kv "machine-id" "$(get_machine_id)"
-  print_kv "状态目录" "${STATE_DIR}"
+  render_pairs_table "field" "value" \
+    "machine-id" "$(get_machine_id)" \
+    "状态目录" "${STATE_DIR}" \
+    "日志目录" "${LOG_DIR}"
 
   if [[ "$PROFILE" == "join" ]]; then
     print_subheading "上游入口检查"
@@ -985,8 +1023,11 @@ show_usage() {
   ./easytierctl platform list                查看脚本内置支持的平台标识
   ./easytierctl platform current             查看当前系统识别结果
   ./easytierctl platform verify              检查 bin/ 中所需可执行文件是否齐全
+  ./easytierctl download [版本]              下载并安装当前平台的 EasyTier 发布包
+  ./easytierctl upgrade [版本]               升级当前平台的 EasyTier 发布包
 
 初始化配置:
+  ./easytierctl init env                     生成项目级公共环境变量配置
   ./easytierctl init executables             生成可执行文件名映射配置
   ./easytierctl init create                  生成创建组网配置
   ./easytierctl init join                    生成加入组网配置
@@ -1014,6 +1055,9 @@ show_usage() {
   大多数命令都可以省略类型，脚本会优先按当前运行实例或现有配置自动判断。
 
 示例:
+  ./easytierctl init env
+  ./easytierctl download
+  ./easytierctl upgrade v2.6.4
   ./easytierctl init executables
   ./easytierctl init create
   ./easytierctl autostart install join
@@ -1049,10 +1093,16 @@ easytierctl_main() {
           ;;
       esac
       ;;
+    download)
+      cmd_download_release
+      ;;
+    upgrade)
+      cmd_upgrade_release
+      ;;
     init)
       PROFILE="${POSITIONAL_ARGS[0]:-}"
       if [[ -z "$PROFILE" ]]; then
-        echo "错误: init 需要指定 executables、create 或 join。" >&2
+        echo "错误: init 需要指定 env、executables、create 或 join。" >&2
         exit 1
       fi
       if [[ "$PROFILE" == "create" || "$PROFILE" == "join" ]]; then

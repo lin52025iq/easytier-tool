@@ -55,3 +55,15 @@ platform_bin_dir() {
 platform_config_dir() {
   printf '%s\n' "${ROOT_DIR}"
 }
+
+platform_download_asset_keyword() {
+  case "$1" in
+    macos-aarch64) echo "easytier-macos-aarch64" ;;
+    linux-x86_64) echo "easytier-linux-x86_64" ;;
+    windows-x86_64) echo "easytier-windows-x86_64" ;;
+    windows-aarch64) echo "easytier-windows-aarch64" ;;
+    *)
+      return 1
+      ;;
+  esac
+}
