@@ -238,6 +238,7 @@ EASYTIER_WEB_EMBED_FILENAME=easytier-web-embed-macos
 
 ## 当前内置识别的平台
 
+- `linux-aarch64`
 - `linux-x86_64`
 - `macos-aarch64`
 - `windows-x86_64`

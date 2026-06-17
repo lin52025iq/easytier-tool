@@ -22,6 +22,7 @@ platform_detect_default_id() {
     MINGW64_NT*:x86_64|MSYS_NT*:x86_64|CYGWIN_NT*:x86_64) echo "windows-x86_64" ;;
     MINGW64_NT*:arm64|MSYS_NT*:arm64|CYGWIN_NT*:arm64) echo "windows-aarch64" ;;
     Darwin:arm64) echo "macos-aarch64" ;;
+    Linux:aarch64|Linux:arm64) echo "linux-aarch64" ;;
     Linux:x86_64|Linux:amd64) echo "linux-x86_64" ;;
     *) return 1 ;;
   esac
@@ -30,6 +31,7 @@ platform_detect_default_id() {
 platform_display_name() {
   case "$1" in
     macos-aarch64) echo "macOS Apple Silicon" ;;
+    linux-aarch64) echo "Linux ARM64" ;;
     linux-x86_64) echo "Linux x86_64" ;;
     windows-x86_64) echo "Windows x86_64" ;;
     windows-aarch64) echo "Windows ARM64" ;;
@@ -40,6 +42,7 @@ platform_display_name() {
 }
 
 platform_list_known() {
+  printf '%-16s %s\n' "linux-aarch64" "$(platform_display_name linux-aarch64)"
   printf '%-16s %s\n' "linux-x86_64" "$(platform_display_name linux-x86_64)"
   printf '%-16s %s\n' "macos-aarch64" "$(platform_display_name macos-aarch64)"
   printf '%-16s %s\n' "windows-x86_64" "$(platform_display_name windows-x86_64)"
@@ -59,6 +62,7 @@ platform_config_dir() {
 platform_download_asset_keyword() {
   case "$1" in
     macos-aarch64) echo "easytier-macos-aarch64" ;;
+    linux-aarch64) echo "easytier-linux-aarch64" ;;
     linux-x86_64) echo "easytier-linux-x86_64" ;;
     windows-x86_64) echo "easytier-windows-x86_64" ;;
     windows-aarch64) echo "easytier-windows-aarch64" ;;
