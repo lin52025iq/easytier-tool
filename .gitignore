@@ -1,0 +1,10 @@
+*
+!/.gitignore
+!/README.md
+!/easytierctl
+!/lib/
+!/lib/*.sh
+!/env-templates/
+!/env-templates/.env.*.example
+!/bin/
+!/bin/.gitkeep
