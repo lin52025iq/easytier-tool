@@ -254,7 +254,9 @@ EASYTIER_WEB_EMBED_FILENAME=easytier-web-embed-macos
 - 执行 `./easytierctl platform current` 确认识别为 `termux-aarch64` 或 `termux-x86_64`
 - `download` / `upgrade` 会优先匹配 Android / Termux 风格发布包，如果官方 release 没有对应资源，会回退尝试 Linux 同架构发布包
 - 普通 Termux 环境通常建议在 `.env.join` 或 `.env.create` 中设置 `NO_TUN=true`
-- 如果需要创建 TUN，通常要求设备已 root，并在 root shell 中运行
+- 如果需要像普通节点一样拥有 `10.144.144.x` 虚拟 IP，通常要求设备已 root，并在 root shell 中运行
+- 如果设备不能 root，不能创建 TUN 虚拟网卡，建议使用 `NO_TUN=true` 加 `PROXY_NETWORKS` 暴露 Termux 本机服务
+- Termux 无 root 示例：`PROXY_NETWORKS=127.0.0.1/32->10.144.144.40/32`，其它节点访问 `10.144.144.40:端口` 即可访问 Termux 上监听在 `127.0.0.1:端口` 的服务
 - 如果需要开机自启，可使用 `./easytierctl autostart install join`，并确保已经安装 `Termux:Boot`
 
 ## Windows 支持说明
