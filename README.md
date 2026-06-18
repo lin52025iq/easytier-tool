@@ -103,7 +103,7 @@ easytier-tool/
 下载/升级逻辑说明：
 
 - 会从 EasyTier 官方 GitHub release 动态查询最新版本或指定版本
-- 会自动匹配当前平台对应的发布包并下载到本地
+- 会通过内置平台标识、`uname`、Termux 环境变量等信息自动匹配当前平台对应的发布包并下载到本地
 - 解压后会把 `easytier-core`、`easytier-cli`、`easytier-web`、`easytier-web-embed` 安装到 `bin/`
 - 会自动重写根目录 `.env.executables`，让脚本和实际文件名保持一致
 - 如果设置了 `GITHUB_TOKEN` 或 `GH_TOKEN`，会自动带上它访问 GitHub API，以缓解匿名访问限流
@@ -132,7 +132,7 @@ easytier-tool/
 - `autostart install [create|join]`：安装开机自启；省略类型时自动判断
 - `autostart uninstall [create|join]`：卸载开机自启；省略类型时优先按已安装项判断
 - `autostart status [create|join]`：查看开机自启状态；省略类型时优先按已安装项判断
-- `check [create|join]`：检查组网配置，不实际启动；省略类型时自动判断
+- `check [create|join]`：分层检查组网配置、入口连通性、运行态和核心自检，不实际启动；省略类型时自动判断
 - `start [create|join]`：启动组网节点；省略类型时自动判断
 - `stop [create|join]`：停止组网节点；省略类型时优先按当前运行实例判断
 - `restart [create|join]`：重启组网节点；省略类型时优先按当前运行实例判断
@@ -252,7 +252,7 @@ EASYTIER_WEB_EMBED_FILENAME=easytier-web-embed-macos
 
 - 将 Termux 对应架构的 EasyTier 可执行文件复制到 `bin/`
 - 执行 `./easytierctl platform current` 确认识别为 `termux-aarch64` 或 `termux-x86_64`
-- 当前 `download` / `upgrade` 还不内置 Termux 发布包自动匹配，建议手动下载后放入 `bin/`
+- `download` / `upgrade` 会优先匹配 Android / Termux 风格发布包，如果官方 release 没有对应资源，会回退尝试 Linux 同架构发布包
 - 普通 Termux 环境通常建议在 `.env.join` 或 `.env.create` 中设置 `NO_TUN=true`
 - 如果需要创建 TUN，通常要求设备已 root，并在 root shell 中运行
 - 如果需要开机自启，可使用 `./easytierctl autostart install join`，并确保已经安装 `Termux:Boot`

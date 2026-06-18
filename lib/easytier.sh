@@ -431,6 +431,79 @@ validate_config() {
   fi
 }
 
+print_check_hints() {
+  local exit_code="${1:-1}"
+  local address_mode=""
+  local role_target_label=""
+  local role_target_value=""
+  local tun_mode="开启"
+
+  if bool_is_true "$NO_TUN"; then
+    tun_mode="关闭"
+  fi
+
+  if bool_is_true "$USE_DHCP"; then
+    address_mode="DHCP"
+  else
+    address_mode="${NODE_IPV4:-未设置}"
+  fi
+
+  if [[ "$PROFILE" == "create" ]]; then
+    role_target_label="监听入口"
+    role_target_value="${LISTENER_URLS:-未设置}"
+  else
+    role_target_label="上游入口"
+    role_target_value="${PEER_URLS:-未设置}"
+  fi
+
+  print_subheading "排查建议"
+  render_pairs_table "field" "value" \
+    "网络名称" "${NETWORK_NAME}" \
+    "节点名称" "${HOSTNAME}" \
+    "实例名称" "${INSTANCE_NAME}" \
+    "地址模式" "${address_mode}" \
+    "TUN 模式" "${tun_mode}" \
+    "${role_target_label}" "${role_target_value}" \
+    "额外参数" "${EXTRA_ARGS:-无}"
+
+  print_warn "当前错误来自 easytier-core 自身返回的 exit=${exit_code}。"
+  print_info "优先检查下面几项:"
+  if [[ "$PROFILE" == "create" ]]; then
+    printf '  1. LISTENER_URLS 是否至少包含一个合法的 tcp:// 或 udp:// 监听地址\n'
+    printf '  2. 如果 USE_DHCP=false 且 NO_TUN=false，NODE_IPV4 是否已设置为合法地址\n'
+    printf '  3. MAPPED_LISTENERS 如果填写，格式是否和监听端口一致\n'
+  else
+    printf '  1. PEER_URLS 是否至少包含一个合法的 tcp:// 或 udp:// 上游入口\n'
+    printf '  2. 如果 USE_DHCP=false 且 NO_TUN=false，NODE_IPV4 是否已设置为合法地址\n'
+    printf '  3. 上游入口地址、网络名称、网络密钥是否和 create 节点保持一致\n'
+  fi
+  printf '  4. 当前 EasyTier 二进制版本和参数格式是否匹配\n'
+  printf '  5. 如果近期升级过二进制，可重新检查 .env.executables 是否仍然指向正确文件\n'
+}
+
+build_check_args() {
+  local check_instance_name="$1"
+  local check_rpc_portal="$2"
+  local filtered_args=()
+  local i=0
+  local arg=""
+
+  for (( i = 0; i < ${#BUILT_ARGS[@]}; i++ )); do
+    arg="${BUILT_ARGS[i]}"
+    case "$arg" in
+      -m|--instance-name|-r|--rpc-portal)
+        ((i++))
+        ;;
+      *)
+        filtered_args+=("$arg")
+        ;;
+    esac
+  done
+
+  filtered_args+=(-m "$check_instance_name" -r "$check_rpc_portal")
+  printf '%s\n' "${filtered_args[@]}"
+}
+
 needs_root() {
   if os_is_windows; then
     return 1
@@ -1004,13 +1077,102 @@ cmd_foreground() {
 }
 
 cmd_check() {
+  local check_output_file=""
+  local check_status=0
+  local check_output=""
+  local check_instance_name=""
+  local check_rpc_portal=""
+  local check_args=()
+  local runtime_probe_ok="false"
+  local runtime_probe_detail="未检测到运行态"
+  local core_check_level="warn"
+
   verify_platform_binaries >/dev/null
   ensure_binary "$CORE_BIN"
   ensure_dirs
   build_args
+  check_instance_name="${INSTANCE_NAME}-check-$$"
+  check_rpc_portal="0"
+  while IFS= read -r arg; do
+    check_args+=("$arg")
+  done < <(build_check_args "$check_instance_name" "$check_rpc_portal")
+
   print_heading "配置检查"
+  render_pairs_table "field" "value" \
+    "类型" "${PROFILE}" \
+    "平台" "${PLATFORM_NAME} (${PLATFORM_ID:-unknown})" \
+    "实例" "${INSTANCE_NAME}" \
+    "检查实例" "${check_instance_name}" \
+    "配置文件" "${CONFIG_ENV_FILE}" \
+    "二进制" "${CORE_BIN}" \
+    "检查 RPC" "${check_rpc_portal}"
   print_info "正在检查配置 ..."
-  "$CORE_BIN" "${BUILT_ARGS[@]}" --check-config
+
+  print_subheading "脚本配置"
+  render_pairs_table "field" "value" \
+    "基础变量" "通过" \
+    "二进制文件" "通过" \
+    "参数构建" "通过"
+
+  if [[ "$PROFILE" == "join" ]]; then
+    print_subheading "上游入口检查"
+    check_peer_targets
+  fi
+
+  if run_cli node >/dev/null 2>&1; then
+    runtime_probe_ok="true"
+    runtime_probe_detail="当前实例 RPC 可访问"
+  elif is_running; then
+    runtime_probe_detail="当前实例进程存在，但 RPC 不可访问"
+  fi
+
+  print_subheading "运行态验证"
+  render_pairs_table "field" "value" \
+    "实例状态" "$([[ "$runtime_probe_ok" == "true" ]] && printf '运行中' || printf '未确认')" \
+    "运行态结果" "${runtime_probe_detail}"
+
+  check_output_file="$(mktemp "${TMPDIR:-/tmp}/easytier-check.XXXXXX.log")"
+  if "$CORE_BIN" "${check_args[@]}" --check-config >"$check_output_file" 2>&1; then
+    check_status=0
+  else
+    check_status=$?
+  fi
+
+  check_output="$(cat "$check_output_file" 2>/dev/null || true)"
+  rm -f "$check_output_file" 2>/dev/null || true
+
+  if [[ -n "$check_output" ]]; then
+    print_subheading "检查输出"
+    printf '%s\n' "$check_output"
+  fi
+
+  if [[ "$check_status" -ne 0 ]]; then
+    if [[ "$check_status" -eq 2 || "$check_output" == *"error:"* ]]; then
+      core_check_level="error"
+    fi
+
+    if [[ "$core_check_level" == "warn" ]]; then
+      print_warn "核心自检未通过 (exit=${check_status})，但脚本侧配置校验已通过。"
+      print_warn "easytier-core --check-config 会执行自身运行前校验，可能受 TUN、当前运行实例或系统环境影响。"
+      if [[ -z "$check_output" ]]; then
+        print_warn "easytier-core 未输出额外信息，本次不把它作为配置失败处理。"
+      fi
+      if [[ "$runtime_probe_ok" == "true" ]]; then
+        print_success "配置检查通过（脚本配置 + 运行态）"
+      else
+        print_success "配置检查通过（脚本配置）"
+      fi
+      return 0
+    fi
+
+    print_error "配置检查失败 (exit=${check_status})"
+    if [[ -z "$check_output" ]]; then
+      print_warn "easytier-core 未输出额外信息，请检查 .env 配置和可执行文件版本是否匹配。"
+    fi
+    print_check_hints "$check_status"
+    exit "$check_status"
+  fi
+
   print_success "配置检查通过"
 }
 

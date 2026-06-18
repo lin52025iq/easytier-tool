@@ -67,7 +67,19 @@ render_tsv_table() {
     -v border_color="$STYLE_DIM" \
     -v header_color="${STYLE_BLUE}${STYLE_BOLD}" \
     -v cell_color="$STYLE_BOLD" \
+    -v max_cell_width="64" \
     -v reset="$STYLE_RESET" '
+    function truncate_text(value, max_width,    keep, left_part, right_part) {
+      if (length(value) <= max_width || max_width < 8) {
+        return value
+      }
+
+      keep = int((max_width - 3) / 2)
+      left_part = substr(value, 1, keep)
+      right_part = substr(value, length(value) - (max_width - 3 - keep) + 1)
+      return left_part "..." right_part
+    }
+
     {
       row_count = NR
       if (NF > col_count) {
@@ -75,8 +87,8 @@ render_tsv_table() {
       }
 
       for (i = 1; i <= NF; i++) {
-        cells[NR, i] = $i
-        cell_len = length($i)
+        cells[NR, i] = truncate_text($i, max_cell_width)
+        cell_len = length(cells[NR, i])
         if (cell_len > widths[i]) {
           widths[i] = cell_len
         }
@@ -124,20 +136,93 @@ render_tsv_table() {
   '
 }
 
+terminal_columns() {
+  local cols="${COLUMNS:-}"
+
+  if [[ -n "$cols" && "$cols" =~ ^[0-9]+$ && "$cols" -gt 20 ]]; then
+    printf '%s\n' "$cols"
+    return 0
+  fi
+
+  if command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+    if [[ -n "$cols" && "$cols" =~ ^[0-9]+$ && "$cols" -gt 20 ]]; then
+      printf '%s\n' "$cols"
+      return 0
+    fi
+  fi
+
+  printf '100\n'
+}
+
+truncate_middle_text() {
+  local value="$1"
+  local max_width="$2"
+  local keep_left=0
+  local keep_right=0
+
+  if (( ${#value} <= max_width || max_width < 8 )); then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  keep_left=$(( (max_width - 3) / 2 ))
+  keep_right=$(( max_width - 3 - keep_left ))
+  printf '%s...%s\n' "${value:0:keep_left}" "${value: -keep_right}"
+}
+
 render_pairs_table() {
-  local header_left="${1:-field}"
-  local header_right="${2:-value}"
-  local tsv=""
+  local args=("$@")
+  local table_width=0
+  local field_width=0
+  local value_width=0
+  local key=""
+  local value=""
+  local truncated_value=""
+  local row=""
+  local border=""
+  local i=0
 
-  shift 2 || true
-  tsv="${header_left}"$'\t'"${header_right}"
+  if (( ${#args[@]} >= 2 )) && [[ "${args[0]}" == "field" && "${args[1]}" == "value" ]]; then
+    args=("${args[@]:2}")
+  fi
 
-  while [[ $# -gt 1 ]]; do
-    tsv+=$'\n'"$1"$'\t'"$2"
-    shift 2
+  if (( ${#args[@]} < 2 )); then
+    return 1
+  fi
+
+  for (( i = 0; i + 1 < ${#args[@]}; i += 2 )); do
+    key="${args[i]}"
+    if (( ${#key} > field_width )); then
+      field_width=${#key}
+    fi
   done
 
-  render_tsv_table "$tsv"
+  (( field_width < 8 )) && field_width=8
+  (( field_width > 14 )) && field_width=14
+
+  table_width="$(terminal_columns)"
+  (( table_width > 100 )) && table_width=100
+  (( table_width < 56 )) && table_width=56
+  value_width=$(( table_width - field_width - 7 ))
+  (( value_width < 20 )) && value_width=20
+
+  border="+"
+  border+=$(printf '%*s' $((field_width + 2)) '' | tr ' ' '-')
+  border+="+"
+  border+=$(printf '%*s' $((value_width + 2)) '' | tr ' ' '-')
+  border+="+"
+
+  printf '%s%s%s\n' "$STYLE_DIM" "$border" "$STYLE_RESET"
+  for (( i = 0; i + 1 < ${#args[@]}; i += 2 )); do
+    key="${args[i]}"
+    value="${args[i + 1]}"
+    truncated_value="$(truncate_middle_text "$value" "$value_width")"
+    printf '| %s%-*s%s | %s%-*s%s |\n' \
+      "$STYLE_BLUE" "$field_width" "$key" "$STYLE_RESET" \
+      "$STYLE_BOLD" "$value_width" "$truncated_value" "$STYLE_RESET"
+  done
+  printf '%s%s%s\n' "$STYLE_DIM" "$border" "$STYLE_RESET"
 }
 
 render_node_info() {

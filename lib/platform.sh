@@ -59,15 +59,113 @@ platform_config_dir() {
   printf '%s\n' "${ROOT_DIR}"
 }
 
-platform_download_asset_keyword() {
-  case "$1" in
-    macos-aarch64) echo "easytier-macos-aarch64" ;;
-    linux-aarch64) echo "easytier-linux-aarch64" ;;
-    linux-x86_64) echo "easytier-linux-x86_64" ;;
-    windows-x86_64) echo "easytier-windows-x86_64" ;;
-    windows-aarch64) echo "easytier-windows-aarch64" ;;
+platform_normalize_arch() {
+  case "${1:-}" in
+    aarch64|arm64) echo "aarch64" ;;
+    x86_64|amd64) echo "x86_64" ;;
+    armv7l|armv7|armhf) echo "armv7" ;;
+    i386|i686) echo "i686" ;;
+    *) return 1 ;;
+  esac
+}
+
+platform_detect_os_family() {
+  if platform_is_termux_env; then
+    echo "termux"
+    return 0
+  fi
+
+  case "$(uname -s 2>/dev/null || true)" in
+    Darwin) echo "macos" ;;
+    Linux) echo "linux" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+    *) return 1 ;;
+  esac
+}
+
+platform_download_asset_keywords() {
+  local platform_id="${1:-}"
+  local os_family=""
+  local arch=""
+
+  case "$platform_id" in
+    macos-aarch64)
+      printf '%s\n' "easytier-macos-aarch64" "macos-aarch64" "darwin-aarch64"
+      return 0
+      ;;
+    linux-aarch64)
+      printf '%s\n' "easytier-linux-aarch64" "linux-aarch64" "linux-arm64"
+      return 0
+      ;;
+    linux-x86_64)
+      printf '%s\n' "easytier-linux-x86_64" "linux-x86_64" "linux-amd64"
+      return 0
+      ;;
+    windows-x86_64)
+      printf '%s\n' "easytier-windows-x86_64" "windows-x86_64" "windows-amd64"
+      return 0
+      ;;
+    windows-aarch64)
+      printf '%s\n' "easytier-windows-aarch64" "windows-aarch64" "windows-arm64"
+      return 0
+      ;;
+    termux-aarch64)
+      printf '%s\n' \
+        "easytier-android-aarch64" \
+        "android-aarch64" \
+        "android-arm64" \
+        "easytier-linux-aarch64" \
+        "linux-aarch64" \
+        "linux-arm64"
+      return 0
+      ;;
+    termux-x86_64)
+      printf '%s\n' \
+        "easytier-android-x86_64" \
+        "android-x86_64" \
+        "android-amd64" \
+        "easytier-linux-x86_64" \
+        "linux-x86_64" \
+        "linux-amd64"
+      return 0
+      ;;
+  esac
+
+  os_family="$(platform_detect_os_family 2>/dev/null || true)"
+  arch="$(platform_normalize_arch "$(uname -m 2>/dev/null || true)" 2>/dev/null || true)"
+
+  if [[ -z "$os_family" || -z "$arch" ]]; then
+    return 1
+  fi
+
+  case "$os_family:$arch" in
+    termux:aarch64)
+      printf '%s\n' "easytier-android-aarch64" "android-aarch64" "android-arm64" "easytier-linux-aarch64" "linux-aarch64"
+      ;;
+    termux:x86_64)
+      printf '%s\n' "easytier-android-x86_64" "android-x86_64" "easytier-linux-x86_64" "linux-x86_64"
+      ;;
+    linux:aarch64)
+      printf '%s\n' "easytier-linux-aarch64" "linux-aarch64" "linux-arm64"
+      ;;
+    linux:x86_64)
+      printf '%s\n' "easytier-linux-x86_64" "linux-x86_64" "linux-amd64"
+      ;;
+    macos:aarch64)
+      printf '%s\n' "easytier-macos-aarch64" "macos-aarch64" "darwin-aarch64"
+      ;;
+    windows:aarch64)
+      printf '%s\n' "easytier-windows-aarch64" "windows-aarch64" "windows-arm64"
+      ;;
+    windows:x86_64)
+      printf '%s\n' "easytier-windows-x86_64" "windows-x86_64" "windows-amd64"
+      ;;
     *)
       return 1
       ;;
   esac
+}
+
+platform_download_asset_keyword() {
+  platform_download_asset_keywords "$1" | head -1
 }

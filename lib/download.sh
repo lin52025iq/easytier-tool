@@ -203,27 +203,34 @@ download_resolve_release_metadata() {
   local line_type=""
   local asset_name=""
   local asset_url=""
+  local keyword=""
+  local keyword_rank=0
+  local matched_keyword=""
+  local keywords_file=""
 
-  DOWNLOAD_ASSET_KEYWORD="$(platform_download_asset_keyword "$PLATFORM_ID" 2>/dev/null || true)"
-  if [[ -z "$DOWNLOAD_ASSET_KEYWORD" ]]; then
-    print_error "当前平台 ${PLATFORM_ID:-unknown} 暂不支持自动下载 EasyTier 发布包。"
-    print_warn "你仍然可以手动下载后放入 bin/ 目录。"
+  keywords_file="$(mktemp "${TMPDIR:-/tmp}/easytier-keywords.XXXXXX.txt")"
+  if ! platform_download_asset_keywords "$PLATFORM_ID" >"$keywords_file" 2>/dev/null || [[ ! -s "$keywords_file" ]]; then
+    rm -f "$keywords_file" 2>/dev/null || true
+    print_error "无法为当前平台生成 EasyTier 发布包匹配关键字。"
+    print_kv "平台" "${PLATFORM_NAME} (${PLATFORM_ID:-unknown})"
+    print_warn "脚本已经尝试通过 uname / Termux 环境变量推断平台，但仍无法得到可下载资源匹配规则。"
     exit 1
   fi
+  DOWNLOAD_ASSET_KEYWORD="$(awk 'NF { print; exit }' "$keywords_file")"
 
   api_url="$(download_release_api_url "$version")"
   json_file="$(mktemp "${TMPDIR:-/tmp}/easytier-release.XXXXXX.json")"
   parsed_file="$(mktemp "${TMPDIR:-/tmp}/easytier-release.XXXXXX.tsv")"
 
   if ! download_http_get "$api_url" "$json_file" "quiet"; then
-    rm -f "$json_file" "$parsed_file" 2>/dev/null || true
+    rm -f "$json_file" "$parsed_file" "$keywords_file" 2>/dev/null || true
     print_error "无法获取 EasyTier 发布信息: $api_url"
     print_github_rate_limit_help
     exit 1
   fi
 
   if ! download_parse_release_json "$json_file" >"$parsed_file"; then
-    rm -f "$json_file" "$parsed_file" 2>/dev/null || true
+    rm -f "$json_file" "$parsed_file" "$keywords_file" 2>/dev/null || true
     print_error "无法解析 EasyTier 发布信息。"
     exit 1
   fi
@@ -239,9 +246,20 @@ download_resolve_release_metadata() {
           *) continue ;;
         esac
 
-        [[ "$asset_name" == *"$DOWNLOAD_ASSET_KEYWORD"* ]] || continue
+        matched_keyword=""
+        keyword_rank=0
+        while IFS= read -r keyword; do
+          [[ -n "$keyword" ]] || continue
+          keyword_rank=$((keyword_rank + 1))
+          if [[ "$asset_name" == *"$keyword"* ]]; then
+            matched_keyword="$keyword"
+            break
+          fi
+        done <"$keywords_file"
 
-        score=100
+        [[ -n "$matched_keyword" ]] || continue
+
+        score=$((200 - keyword_rank))
         [[ "$asset_name" == *"$DOWNLOAD_RELEASE_TAG"* ]] && score=$((score + 20))
         if os_is_windows; then
           [[ "$asset_name" == *.zip ]] && score=$((score + 10))
@@ -254,12 +272,13 @@ download_resolve_release_metadata() {
           best_score="$score"
           DOWNLOAD_ASSET_NAME="$asset_name"
           DOWNLOAD_ASSET_URL="$asset_url"
+          DOWNLOAD_ASSET_KEYWORD="$matched_keyword"
         fi
         ;;
     esac
   done <"$parsed_file"
 
-  rm -f "$json_file" "$parsed_file" 2>/dev/null || true
+  rm -f "$json_file" "$parsed_file" "$keywords_file" 2>/dev/null || true
 
   if [[ -z "$DOWNLOAD_RELEASE_TAG" ]]; then
     print_error "未能从 GitHub release 中解析出版本号。"
@@ -269,8 +288,9 @@ download_resolve_release_metadata() {
   if [[ -z "$DOWNLOAD_ASSET_NAME" || -z "$DOWNLOAD_ASSET_URL" ]]; then
     print_error "未找到适用于当前平台的 EasyTier 发布包。"
     print_kv "平台" "${PLATFORM_NAME} (${PLATFORM_ID:-unknown})"
-    print_kv "匹配关键字" "${DOWNLOAD_ASSET_KEYWORD}"
+    print_kv "首选关键字" "${DOWNLOAD_ASSET_KEYWORD}"
     print_kv "版本" "${DOWNLOAD_RELEASE_TAG}"
+    print_warn "可以执行 ./easytierctl platform current 查看平台识别结果，或手动下载后放入 bin/。"
     exit 1
   fi
 }
@@ -401,6 +421,7 @@ install_easytier_release() {
   print_kv "平台" "${PLATFORM_NAME} (${PLATFORM_ID:-unknown})"
   print_kv "版本" "${DOWNLOAD_RELEASE_TAG}"
   print_kv "资源包" "${DOWNLOAD_ASSET_NAME}"
+  print_kv "匹配关键字" "${DOWNLOAD_ASSET_KEYWORD}"
 
   print_info "正在${DOWNLOAD_ACTION_LABEL} EasyTier 发布包 ..."
   if ! download_http_get "$DOWNLOAD_ASSET_URL" "$archive_file" "progress"; then
